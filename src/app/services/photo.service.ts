@@ -1,18 +1,39 @@
 import { Injectable } from '@angular/core';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Storage } from '@capacitor/storage';
+import { Platform } from '@ionic/angular';
 
 @Injectable({
   providedIn: 'root'
 })
-export class PhotoService {
-  //attenzione alle cose che importi, potrebbero entrare in conflitto e
-  //dare errori e ci perderesti ore a cercare la soluzione.
-  public photos: Photo[] = [];
 
-  //metodo di acquisizione foto e salvataggio
-  public async addNewToGallery() {
+export class PhotoService
+{
+  public photos: Photo[] = [];
+  private PHOTO_STORAGE: string = "photos";
+  constructor(private platform: Platform) {};
+  public async loadSaved()
+  {
+    const photoList = await Storage.get({ key: this.PHOTO_STORAGE });
+    this.photos = JSON.parse(photoList.value) || []
+
+    if (!this.platform.is('hybrid'))
+    {
+      for (let photo of this.photos)
+      {
+        const readFile = await Filesystem.readFile({
+          path: photo.filepath,
+          directory: Directory.Data,
+        });
+        photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`;
+      }
+    }
+  }
+
+  public async addNewToGallery()
+  {
     //il metodo che fa la foto è getPhoto ed è insito nel plugin Capacitor Camera. Gira su ogni piattaforma
     const capturedPhoto = await Camera.getPhoto({
       resultType: CameraResultType.Uri,
@@ -20,55 +41,94 @@ export class PhotoService {
       quality: 100
     });
 
-    // this.photos.unshift({
-    //   //src di salvataggio foto
-    //   filepath: './photo-gallery-acquired',
-    //   webviewPath: capturedPhoto.webPath
-    // });
-
     const savedImageFile = await this.savePicture(capturedPhoto);
     this.photos.unshift(savedImageFile);
 
+    Storage.set(
+    {
+      key: this.PHOTO_STORAGE,
+      value: JSON.stringify(this.photos)
+    });
   }
   //cameraPhoto: CameraPhoto <-- tipo CameraPhoto è datato, si usa Photo
-  private async savePicture(cameraPhoto: Photo) {
+  private async savePicture(cameraPhoto: Photo)
+  {
     const base64Data = await this.readAsBase64(cameraPhoto);
-    // Write the file to the data directory
     const fileName = new Date().getTime() + '.jpeg';
     const savedFile = await Filesystem.writeFile({
       path: fileName,
       data: base64Data,
-      directory: Directory.Data
+      directory: Directory.Data,
     });
 
-    return {
-      filepath: fileName,
-      webviewPath: cameraPhoto.webPath//potrebbe essere webviewPath?
-    };
+    if (this.platform.is('hybrid'))
+    {
+      return {
+        filepath: savedFile.uri,
+        webviewPath: Capacitor.convertFileSrc(savedFile.uri),
+      };
+    }
+    else
+    {
+      return {
+        filepath: fileName,
+        webviewPath: cameraPhoto.filepath,
+      };
+    }
   }
 
-  private async readAsBase64(cameraPhoto: Photo) {
-    //fetch (acchiappa) la foto tramite blob (file generico) e la converte a 64bit
-    // perchè la fotocamera è basata su quel formato
-    const response = await fetch(cameraPhoto.webPath!); //potrebbe essere webviewPath?
-    const blob = await response.blob();
-
-    return await this.convertBlobToBase64(blob) as string;
+  private async readAsBase64(cameraPhoto: Photo)
+  {
+    if (this.platform.is('hybrid'))
+    {
+      const file = await Filesystem.readFile({
+        path: cameraPhoto.filepath,
+      });
+      return file.data;
+    }
+    else
+    {
+      const response = await fetch(cameraPhoto.filepath!);
+      const blob = await response.blob();
+      return (await this.convertBlobToBase64(blob)) as string;
+    }
   }
 
-  convertBlobToBase64 = (blob: Blob) => new Promise((resolve, reject) => {
-    const reader = new FileReader;
-    reader.onerror = reject;
-    reader.onload = () => {
+  public async deletePicture(photo: Photo, position: number)
+  {
+    this.photos.splice(position, 1);
+
+    Storage.set({
+      key: this.PHOTO_STORAGE,
+      value: JSON.stringify(this.photos),
+    });
+
+    const filename = photo.filepath.substr(photo.filepath.lastIndexOf('/') + 1);
+    await Filesystem.deleteFile({
+      path: filename,
+      directory: Directory.Data,
+    });
+  }
+
+  convertBlobToBase64 = (blob: Blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => {
         resolve(reader.result);
-    };
-    reader.readAsDataURL(blob);
-  });
+      };
+      reader.readAsDataURL(blob);
+    });
 }
+
 }
 export interface Photo {
   filepath: string;
   webviewPath: string;
+  
 }
+
+
+
 
 
