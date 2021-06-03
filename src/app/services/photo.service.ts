@@ -12,13 +12,18 @@ import { Platform } from '@ionic/angular';
 export class PhotoService
 {
   public photos: Photo[] = [];
-  private PHOTO_STORAGE: string = "photos";
-  constructor(private platform: Platform) {};
+  private PHOTO_STORAGE = 'photos';
+
+  private platform: Platform;
+  constructor(platform: Platform)
+  {
+    this.platform = platform;
+  }
+
   public async loadSaved()
   {
     const photoList = await Storage.get({ key: this.PHOTO_STORAGE });
-    this.photos = JSON.parse(photoList.value) || []
-
+    this.photos = JSON.parse(photoList.value) || [];
     if (!this.platform.is('hybrid'))
     {
       for (let photo of this.photos)
@@ -76,21 +81,21 @@ export class PhotoService
       };
     }
   }
-
+//la funzione serve per fare un check sul dispositivo su cui gira l'app
   private async readAsBase64(cameraPhoto: Photo)
   {
     if (this.platform.is('hybrid'))
     {
       const file = await Filesystem.readFile({
-        path: cameraPhoto.filepath,
+        path: cameraPhoto.path,
       });
       return file.data;
     }
     else
     {
-      const response = await fetch(cameraPhoto.filepath!);
+      const response = await fetch(cameraPhoto.webPath);
       const blob = await response.blob();
-      return (await this.convertBlobToBase64(blob)) as string;
+      return await this.convertBlobToBase64(blob) as string;
     }
   }
 
@@ -100,7 +105,10 @@ export class PhotoService
 
     Storage.set({
       key: this.PHOTO_STORAGE,
-      value: JSON.stringify(this.photos),
+      value: JSON.stringify(this.photos)
+      // The JSON.stringify() method converts a JavaScript object or value to a JSON string,
+      // optionally replacing values if a replacer function is specified or optionally including
+      // only the specified properties if a replacer array is specified.
     });
 
     const filename = photo.filepath.substr(photo.filepath.lastIndexOf('/') + 1);
@@ -109,7 +117,6 @@ export class PhotoService
       directory: Directory.Data,
     });
   }
-
   convertBlobToBase64 = (blob: Blob) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -119,16 +126,11 @@ export class PhotoService
       };
       reader.readAsDataURL(blob);
     });
-}
+ }
 
-}
 export interface Photo {
-  filepath: string;
-  webviewPath: string;
-  
+  webPath?: RequestInfo;
+  path?: string;
+  filepath?: string;
+  webviewPath?: string;
 }
-
-
-
-
-
